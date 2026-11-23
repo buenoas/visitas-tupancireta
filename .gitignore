@@ -1,0 +1,5 @@
+# Dados dos alunos nunca vão para o GitHub (são distribuídos como arquivo à parte)
+data.js
+*.dados
+alunos-*.json
+.claude/
