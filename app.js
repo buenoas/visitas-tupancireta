@@ -53,29 +53,59 @@ let ENTRADA = null;
 function salvarSel() { LS.set('sel', sel); atualizarBolhas(); }
 
 /* ---------- dados dos alunos ----------
-   Não ficam no site. Chegam pelo arquivo que a coordenação manda no WhatsApp (botão
-   "Abrir lista de alunos") e ficam guardados só neste celular. O link antigo com os dados
-   depois do "#d=" (parte do endereço que o navegador não envia ao servidor) também funciona. */
+   Não ficam no site. Vêm dentro do link que a coordenação manda no WhatsApp (um link por
+   curso), depois do "#l=", parte do endereço que o navegador não envia a nenhum servidor.
+   Ficam guardados só neste celular; cada link de curso novo se soma aos que já estão aqui.
+   O formato antigo "#d=" (lista inteira em JSON) continua valendo. */
 const b64bytes = s => { const b = s.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(b + '==='.slice((b.length + 3) % 4)), c => c.charCodeAt(0)); };
-const inflar = async bytes => JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());
+const inflarTxt = async bytes => new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+const hashId = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+const fmtTel = t => t.length === 11 ? `(${t.slice(0, 2)}) ${t.slice(2, 7)}-${t.slice(7)}` : t.length === 10 ? `(${t.slice(0, 2)}) ${t.slice(2, 6)}-${t.slice(6)}` : t;
+function lerLinhas(txt) {
+  const L = txt.split('\n'); const [tag, gerado, todos] = L[0].split('\t'); if (tag !== 'VT2') return null;
+  const cursos = L[1].split('\t');
+  const alunos = L.slice(2).filter(Boolean).map(l => {
+    const [n, ci, lg, r, num, b, cp, tel] = l.split('\t'); const c = cursos[+ci] || '';
+    return { id: hashId(n + '|' + c), n, c, lg, r, num, b, cp, tel: fmtTel(tel || '') };
+  });
+  return { app: 'visitas-tupancireta', gerado, todos: todos === '1', cursos, alunos, locais: {} };
+}
 async function dadosDoLink() {
-  const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)/); if (!m) return null;
-  return inflar(b64bytes(m[1]));
+  let m = location.hash.match(/^#l=([A-Za-z0-9_-]+)/);
+  if (m) return lerLinhas(await inflarTxt(b64bytes(m[1])));
+  m = location.hash.match(/^#d=([A-Za-z0-9_-]+)/);
+  if (m) { const d = JSON.parse(await inflarTxt(b64bytes(m[1]))); if (d) d.todos = true; return d; }
+  return null;
 }
 function dadosValidos(d) { return d && d.app === 'visitas-tupancireta' && Array.isArray(d.alunos); }
+// junta o link novo com o que já está no celular: os cursos do link substituem os mesmos cursos
 function guardarDados(d) {
   const atual = LS.get('dados', null);
-  if (!atual || (d.gerado || '') >= (atual.gerado || '')) LS.set('dados', d);
+  let novo = d;
+  if (dadosValidos(atual) && !d.todos) {
+    const cs = new Set(d.alunos.map(a => a.c));
+    novo = { app: d.app, gerado: d.gerado > (atual.gerado || '') ? d.gerado : atual.gerado, locais: atual.locais || {},
+      alunos: atual.alunos.filter(a => !cs.has(a.c)).concat(d.alunos) };
+  }
+  LS.set('dados', novo);
+  return novo;
 }
+let avisoLink = '';
 async function obterDados() {
-  try {
-    const d = await dadosDoLink();
-    if (dadosValidos(d)) guardarDados(d);
-  } catch (e) { toast('O link veio incompleto. Use o arquivo da lista.'); }
-  if (location.hash.startsWith('#d=')) history.replaceState(null, '', location.pathname + location.search);
+  if (/^#[ld]=/.test(location.hash)) {
+    try {
+      const d = await dadosDoLink();
+      if (dadosValidos(d)) {
+        guardarDados(d);
+        const cs = [...new Set(d.alunos.map(a => a.c))];
+        if (!d.todos && cs.length === 1) { filtro.curso = cs[0]; LS.set('curso', cs[0]); }
+        avisoLink = d.todos ? `Lista carregada: ${d.alunos.length} alunos` : `${cs.join(', ')}: ${d.alunos.length} alunos carregados`;
+      }
+    } catch (e) { avisoLink = 'O link veio cortado. Toque nele de novo no grupo.'; }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   const salvo = LS.get('dados', null);
   if (dadosValidos(salvo)) return salvo;
-  if (dadosValidos(window.DADOS)) return window.DADOS;
   return null;
 }
 
@@ -635,24 +665,18 @@ function ligarEventos() {
   $('#bt-fecha-ficha').onclick = () => history.back();
   window.addEventListener('popstate', () => { if (fichaId) fecharFicha(); });
   $('#form-entrada').onsubmit = e => e.preventDefault();
-  $('#in-arquivo').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    try {
-      const d = JSON.parse(await f.text());
-      if (!dadosValidos(d)) throw new Error('formato');
-      LS.set('dados', d); entrar(d); toast(`Lista carregada: ${d.alunos.length} alunos`);
-    } catch (err) {
-      $('#erro-entrada').textContent = 'Este arquivo não é a lista de alunos. Escolha o arquivo lista-alunos-tupancireta.json.';
-      if ($('#entrada').classList.contains('hide')) toast('Este arquivo não é a lista de alunos.');
-    }
-    e.target.value = '';
-  };
+}
+async function carregar() {
+  const d = await obterDados();
+  if (d) entrar(d);
+  else { $('#entrada').classList.remove('hide'); if (avisoLink) $('#erro-entrada').textContent = avisoLink; }
+  if (d && avisoLink) toast(avisoLink);
+  avisoLink = '';
 }
 ligarEventos();
 (async () => {
-  const d = await obterDados();
-  if (d) entrar(d); else $('#entrada').classList.remove('hide');
+  await carregar();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 })();
-// abrir um link novo de dados com o app já aberto
-window.addEventListener('hashchange', async () => { if (location.hash.startsWith('#d=')) { const d = await obterDados(); if (d) entrar(d); } });
+// abrir o link de outro curso com o app já aberto
+window.addEventListener('hashchange', () => { if (/^#[ld]=/.test(location.hash)) carregar(); });

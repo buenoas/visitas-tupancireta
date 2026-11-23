@@ -11,6 +11,6 @@ Para montar um roteiro:
 
 O mapa de ruas fica embutido no app e funciona sem sinal.
 
-**Este repositório não contém dados de alunos.** A coordenação manda a lista (nome, curso, endereço e celular) como arquivo no grupo dos servidores. Cada colega abre o app, toca em **Abrir lista de alunos** e escolhe esse arquivo. A lista fica guardada só no celular e o app abre mesmo sem sinal.
+**Este repositório não contém dados de alunos.** A coordenação manda no grupo dos servidores um link por curso. A lista (nome, curso, endereço e celular) vai dentro do próprio link, depois do `#`, uma parte do endereço que o navegador não envia a nenhum servidor. O colega toca no link e o app abre com a lista, que fica guardada só no celular. Depois disso, o app abre mesmo sem sinal.
 
 Ruas: © colaboradores do OpenStreetMap (ODbL).
