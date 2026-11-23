@@ -53,14 +53,14 @@ let ENTRADA = null;
 function salvarSel() { LS.set('sel', sel); atualizarBolhas(); }
 
 /* ---------- dados dos alunos ----------
-   Não ficam no site público. Chegam por um link (#d=..., parte do endereço que o navegador
-   não envia ao servidor) ou por um arquivo, e ficam guardados só neste celular. */
+   Não ficam no site. Chegam pelo arquivo que a coordenação manda no WhatsApp (botão
+   "Abrir lista de alunos") e ficam guardados só neste celular. O link antigo com os dados
+   depois do "#d=" (parte do endereço que o navegador não envia ao servidor) também funciona. */
+const b64bytes = s => { const b = s.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(b + '==='.slice((b.length + 3) % 4)), c => c.charCodeAt(0)); };
+const inflar = async bytes => JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());
 async function dadosDoLink() {
   const m = location.hash.match(/^#d=([A-Za-z0-9_-]+)/); if (!m) return null;
-  const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
-  const bytes = Uint8Array.from(atob(b64 + '==='.slice((b64.length + 3) % 4)), c => c.charCodeAt(0));
-  const txt = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
-  return JSON.parse(txt);
+  return inflar(b64bytes(m[1]));
 }
 function dadosValidos(d) { return d && d.app === 'visitas-tupancireta' && Array.isArray(d.alunos); }
 function guardarDados(d) {
@@ -70,8 +70,8 @@ function guardarDados(d) {
 async function obterDados() {
   try {
     const d = await dadosDoLink();
-    if (dadosValidos(d)) { guardarDados(d); toast(`Lista de alunos carregada (${d.alunos.length})`); }
-  } catch (e) { toast('O link de dados veio incompleto. Peça o link de novo ou use o arquivo.'); }
+    if (dadosValidos(d)) guardarDados(d);
+  } catch (e) { toast('O link veio incompleto. Use o arquivo da lista.'); }
   if (location.hash.startsWith('#d=')) history.replaceState(null, '', location.pathname + location.search);
   const salvo = LS.get('dados', null);
   if (dadosValidos(salvo)) return salvo;
@@ -315,7 +315,7 @@ function renderFicha() {
   const tel = (a.tel || '').replace(/\D/g, '');
   const telBR = tel.length >= 10 ? (tel.startsWith('55') && tel.length > 11 ? tel : '55' + tel) : '';
   $('#ficha-conteudo').innerHTML = `
-    <div class="sub nota">${esc(a.c)}${a.t ? ' · ' + esc(a.t) : ''} · ${esc(a.nv)}</div>
+    <div class="sub nota">${esc(a.c)}${a.t ? ' · ' + esc(a.t) : ''}</div>
     <div class="caixa">
       <div class="end-grande">${esc(endTxt(a))}</div>
       <div>${esc(a.b ? 'Bairro ' + a.bL + ' · ' : '')}Tupanciretã</div>
@@ -640,8 +640,12 @@ function ligarEventos() {
     try {
       const d = JSON.parse(await f.text());
       if (!dadosValidos(d)) throw new Error('formato');
-      guardarDados(d); entrar(LS.get('dados', d));
-    } catch (err) { $('#erro-entrada').textContent = 'Este arquivo não é a lista de alunos do app.'; }
+      LS.set('dados', d); entrar(d); toast(`Lista carregada: ${d.alunos.length} alunos`);
+    } catch (err) {
+      $('#erro-entrada').textContent = 'Este arquivo não é a lista de alunos. Escolha o arquivo lista-alunos-tupancireta.json.';
+      if ($('#entrada').classList.contains('hide')) toast('Este arquivo não é a lista de alunos.');
+    }
+    e.target.value = '';
   };
 }
 ligarEventos();

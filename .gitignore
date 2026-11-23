@@ -3,3 +3,5 @@ data.js
 *.dados
 alunos-*.json
 .claude/
+*.dat
+lista-*.json

@@ -1,5 +1,5 @@
 // Guarda o app no celular para abrir mesmo sem sinal.
-const V = 'vt-v2';
+const V = 'vt-v3';
 const CORE = ['./', './index.html', './app.js', './ruas.js', './manifest.webmanifest', './icon.svg', './icon-192.png',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'];

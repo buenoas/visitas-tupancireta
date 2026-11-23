@@ -149,6 +149,7 @@ textarea{min-height:84px;resize:vertical}
 #entrada form{background:#fff;color:var(--tinta);border-radius:16px;padding:22px 18px;width:100%;max-width:400px}
 #entrada h1{margin:0 0 4px;font-size:21px}
 #entrada label{display:block;font-weight:600;margin:14px 0 6px;font-size:14px}
+#entrada label.btn{display:flex;font-size:16px;margin:12px 0 6px}
 #entrada .erro{color:var(--verm);font-size:14px;min-height:20px;margin-top:8px}
 
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--nav) + 16px + env(safe-area-inset-bottom));background:#222;color:#fff;padding:10px 16px;border-radius:99px;font-size:14px;z-index:90;max-width:90vw;text-align:center}
@@ -177,10 +178,13 @@ textarea{min-height:84px;resize:vertical}
     <h1>Visitas Tupanciretã</h1>
     <div class="nota">IFFar Campus Júlio de Castilhos · ação humanitária após o temporal de 20/11</div>
     <div id="sem-dados">
-      <p style="margin:14px 0 6px"><b>Falta carregar a lista de alunos.</b></p>
-      <div class="nota">Abra neste celular o link que o coordenador mandou no WhatsApp. Se o link não abrir, use o arquivo de dados:</div>
-      <label class="btn blk" for="in-arquivo" style="margin-top:10px">Abrir arquivo de dados</label>
-      <input id="in-arquivo" type="file" accept=".json,application/json,text/plain" class="hide">
+      <p style="margin:14px 0 6px"><b>Primeiro, carregue a lista de alunos.</b></p>
+      <ol class="nota" style="padding-left:18px;margin:6px 0">
+        <li>No grupo do WhatsApp, toque no arquivo <b>lista-alunos-tupancireta.json</b> para baixar.</li>
+        <li>Volte aqui, toque no botão abaixo e escolha esse arquivo (ele fica em <b>Downloads</b> ou na pasta do WhatsApp).</li>
+      </ol>
+      <label class="btn pri blk grande" for="in-arquivo" style="margin-top:12px">Abrir lista de alunos</label>
+      <input id="in-arquivo" type="file" class="hide">
     </div>
     <div class="erro" id="erro-entrada" role="alert"></div>
     <div class="nota">Depois do primeiro acesso, o app funciona mesmo sem sinal.</div>
@@ -204,6 +208,7 @@ textarea{min-height:84px;resize:vertical}
     <div class="resumo"><span id="contagem"></span><button class="lnk" id="bt-add-todos">marcar todos</button></div>
     <div class="nota" style="margin:-4px 2px 8px">Toque no quadradinho dos alunos que vão ser visitados.</div>
     <div id="lista"></div>
+    <div class="nota" style="text-align:center;margin:18px 0 6px">Recebeu uma lista nova no grupo? <label class="lnk" for="in-arquivo" style="cursor:pointer">Abrir lista nova</label></div>
   </section>
 
   <section class="tela hide" id="tela-roteiro"></section>
@@ -234,7 +239,6 @@ textarea{min-height:84px;resize:vertical}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="ruas.js"></script>
-<script src="data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
