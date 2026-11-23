@@ -1,29 +1,15 @@
 'use strict';
 /* Visitas Tupanciretã — IFFar Campus Júlio de Castilhos
-   Tudo roda no celular: dados cifrados (data.js), ruas do OpenStreetMap (ruas.js),
-   marcações guardadas no próprio aparelho e enviadas por e-mail ao coordenador. */
+   Serve para duas coisas: saber onde cada aluno mora e montar o roteiro de visitas
+   (Google Maps e impressão/PDF). Tudo roda no celular, com as ruas do OpenStreetMap (ruas.js). */
 
-let EMAIL = '';   // vem junto com os dados dos alunos (não fica no código público)
 const CAMPUS = [-29.18167, -53.71464];
 const CENTRO = [-29.08129, -53.83648];           // Igreja Matriz (marco do centro)
 const REFS = [
   { n: 'Igreja Matriz', p: [-29.08129, -53.83648] },
   { n: 'Prefeitura', p: [-29.08492, -53.83656] },
 ];
-const ITENS = [
-  ['agua', 'Água potável'], ['cesta', 'Cesta básica / alimentos'], ['colchao', 'Colchão'],
-  ['cobertor', 'Cobertor / roupa de cama'], ['roupa', 'Roupas / calçados'], ['lona', 'Lona'],
-  ['telha', 'Telhas'], ['construcao', 'Material de construção'], ['higiene', 'Kit higiene'],
-  ['limpeza', 'Kit limpeza'], ['escolar', 'Material escolar'], ['remedio', 'Remédios'], ['fralda', 'Fraldas'],
-];
-const NOME_ITEM = Object.fromEntries(ITENS);
-const SITUACOES = ['Sem danos', 'Danos leves', 'Destelhada', 'Inabitável'];
-const STATUS = {
-  visitado: { t: 'Visitado', c: '#1f8a3b' },
-  ausente: { t: 'Ninguém em casa', c: '#c77700' },
-  voltar: { t: 'Voltar depois', c: '#6a45c2' },
-};
-const COR_PENDENTE = '#c62828';
+const COR = '#c62828', COR_FORA = '#8a968e';
 const RURAL = [
   [/nova tup/, [-29.0894, -53.7985], 'Assentamento Nova Tupã'],
   [/conquista/, [-29.0433, -53.8473], 'Assentamento Conquista da Esperança'],
@@ -60,25 +46,10 @@ const ICON = {
 
 /* ---------- estado ---------- */
 let DB = null, A = [], byId = {};
-let edits = LS.get('edits', {});
 let sel = LS.get('sel', []);
-let equipe = LS.get('equipe', '');
-let filtro = { q: '', st: 'todos', bairro: '', curso: '', nivel: '', ordem: 'bairro' };
+let filtro = { q: '', bairro: '', curso: LS.get('curso', ''), ordem: 'nome' };
 let ENTRADA = null;
 
-function rec(id) {
-  const b = DB.visitas && DB.visitas[id], e = edits[id];
-  if (!e) return b || null;
-  if (!b) return e;
-  return (e.qd || '') >= (b.qd || '') ? e : b;
-}
-function stDe(id) { const r = rec(id); return r && r.st ? r.st : ''; }
-function salvarEdit(id, patch) {
-  const base = rec(id) || {};
-  edits[id] = Object.assign({}, base, patch, { qd: agora(), eq: equipe });
-  LS.set('edits', edits);
-  atualizarBolhas();
-}
 function salvarSel() { LS.set('sel', sel); atualizarBolhas(); }
 
 /* ---------- dados dos alunos ----------
@@ -237,7 +208,7 @@ function localizarTodos() {
 }
 function aplicarLocais() {
   for (const a of A) {
-    const r = rec(a.id); const fix = (r && r.loc) || (DB.locais && DB.locais[a.id]);
+    const fix = DB.locais && DB.locais[a.id];
     if (fix && fix.length === 2) a.geo = Object.assign({}, a.geo, { p: fix, prec: 'gps' });
   }
 }
@@ -270,13 +241,8 @@ function linkMaps(origem, paradas) {
 
 /* ---------- filtros ---------- */
 function passa(a) {
-  const st = stDe(a.id);
-  if (filtro.st === 'pendente' && st) return false;
-  if (filtro.st === 'feito' && st !== 'visitado') return false;
-  if (filtro.st === 'ausente' && !(st === 'ausente' || st === 'voltar')) return false;
   if (filtro.bairro && a.bK !== filtro.bairro) return false;
   if (filtro.curso && a.c !== filtro.curso) return false;
-  if (filtro.nivel && a.nv !== filtro.nivel) return false;
   if (filtro.q) {
     const q = deac(filtro.q).trim().split(/\s+/);
     const alvo = deac([a.n, a.r, a.geo.rua, a.b, a.c, a.num].join(' '));
@@ -287,40 +253,41 @@ function passa(a) {
 function filtrados() {
   const L = A.filter(passa);
   if (filtro.ordem === 'nome') L.sort((x, y) => x.n.localeCompare(y.n, 'pt'));
-  else if (filtro.ordem === 'campus') L.sort((x, y) => (x.geo.p ? dist(x.geo.p, ENTRADA) : 1e9) - (y.geo.p ? dist(y.geo.p, ENTRADA) : 1e9));
   else L.sort((x, y) => (x.bL || 'zzz').localeCompare(y.bL || 'zzz', 'pt') || (x.geo.rua || x.r).localeCompare(y.geo.rua || y.r, 'pt') || x.numN - y.numN);
   return L;
 }
 
 /* ---------- tela: alunos ---------- */
-function tagStatus(id) {
-  const r = rec(id); const st = r && r.st;
-  if (!st) return `<span class="tag st" style="background:${COR_PENDENTE}">A visitar</span>`;
-  return `<span class="tag st" style="background:${STATUS[st].c}">${STATUS[st].t}</span><span class="tag">${esc(r.eq || '')}${r.qd ? ' · ' + dataBR(r.qd) : ''}</span>`;
-}
-function necResumo(r) {
-  if (!r || !r.nec) return '';
-  return Object.entries(r.nec).filter(([, q]) => q > 0).map(([k, q]) => `${NOME_ITEM[k] || k}${q > 1 ? ' ×' + q : ''}`).join(', ');
-}
 function renderLista() {
   const L = filtrados();
-  $('#contagem').textContent = `${L.length} de ${A.length} alunos`;
+  $('#contagem').textContent = filtro.curso || filtro.bairro || filtro.q ? `${L.length} de ${A.length} alunos` : `${A.length} alunos`;
   const ns = new Set(sel);
-  if (!L.length) { $('#lista').innerHTML = '<div class="vazio">Nenhum aluno com esses filtros.</div>'; return; }
+  const todosMarcados = L.length && L.every(a => ns.has(a.id));
+  $('#bt-add-todos').textContent = todosMarcados ? 'desmarcar todos' : 'marcar todos';
+  if (!L.length) { $('#lista').innerHTML = '<div class="vazio">Nenhum aluno com esses filtros.</div>'; atualizarBarra(); return; }
   $('#lista').innerHTML = L.map(a => {
-    const r = rec(a.id); const pos = sel.indexOf(a.id);
-    const nec = necResumo(r);
+    const pos = sel.indexOf(a.id);
     return `<div class="card" data-id="${a.id}">
       <button class="chk" aria-pressed="${ns.has(a.id)}" aria-label="Incluir no roteiro"><span>${pos >= 0 ? pos + 1 : ''}</span></button>
       <button class="corpo">
         <div class="nome">${esc(a.n)}</div>
         <div class="sub">${esc(a.c)}${a.t ? ' · ' + esc(a.t) : ''}</div>
         <div class="end">${esc(endTxt(a))}</div>
-        <div class="tags">${a.b ? `<span class="tag">${esc(a.b)}</span>` : ''}${tagStatus(a.id)}
-          ${a.geo.prec === 'bairro' || a.geo.prec === 'semlocal' ? '<span class="tag aviso">local aproximado</span>' : ''}
-          ${nec ? `<span class="tag aviso">Precisa: ${esc(nec)}</span>` : ''}</div>
+        <div class="tags">${a.b ? `<span class="tag">${esc(a.b)}</span>` : ''}
+          ${a.geo.prec === 'bairro' || a.geo.prec === 'semlocal' || a.geo.prec === 'rural' ? '<span class="tag aviso">local aproximado</span>' : ''}</div>
       </button></div>`;
   }).join('');
+  atualizarBarra();
+}
+function atualizarBarra() {
+  const ver = telaAtual === 'alunos' && sel.length > 0;
+  $('#barra-sel').classList.toggle('hide', !ver);
+  document.body.classList.toggle('com-barra', ver);
+  $('#bs-n').textContent = `${sel.length} aluno${sel.length > 1 ? 's' : ''} marcado${sel.length > 1 ? 's' : ''}`;
+}
+function montarRoteiro() {
+  if (!sel.length) return;
+  sel = ordenarRota(sel); salvarSel(); irPara('roteiro');
 }
 function montarFiltros() {
   const bairros = {};
@@ -328,7 +295,9 @@ function montarFiltros() {
   const bs = Object.entries(bairros).sort((x, y) => x[1].localeCompare(y[1], 'pt'));
   $('#f-bairro').innerHTML = '<option value="">Todos os bairros</option>' + bs.map(([k, l]) => `<option value="${esc(k)}">${esc(l)} (${A.filter(a => a.bK === k).length})</option>`).join('');
   const cursos = [...new Set(A.map(a => a.c))].sort((x, y) => x.localeCompare(y, 'pt'));
-  $('#f-curso').innerHTML = '<option value="">Todos os cursos</option>' + cursos.map(c => `<option>${esc(c)}</option>`).join('');
+  $('#f-curso').innerHTML = `<option value="">Todos os cursos (${A.length})</option>` + cursos.map(c => `<option value="${esc(c)}">${esc(c)} (${A.filter(a => a.c === c).length})</option>`).join('');
+  if (!cursos.includes(filtro.curso)) filtro.curso = '';
+  $('#f-curso').value = filtro.curso;
 }
 
 /* ---------- ficha do aluno ---------- */
@@ -342,10 +311,9 @@ function abrirFicha(id, empurrar = true) {
 }
 function fecharFicha() { $('#ficha').classList.add('hide'); fichaId = null; renderAtual(); }
 function renderFicha() {
-  const a = byId[fichaId]; const r = rec(a.id) || {}; const noRot = sel.includes(a.id);
+  const a = byId[fichaId]; const noRot = sel.includes(a.id);
   const tel = (a.tel || '').replace(/\D/g, '');
   const telBR = tel.length >= 10 ? (tel.startsWith('55') && tel.length > 11 ? tel : '55' + tel) : '';
-  const nec = r.nec || {};
   $('#ficha-conteudo').innerHTML = `
     <div class="sub nota">${esc(a.c)}${a.t ? ' · ' + esc(a.t) : ''} · ${esc(a.nv)}</div>
     <div class="caixa">
@@ -362,61 +330,10 @@ function renderFicha() {
         <a class="btn" href="tel:+${telBR}">${ICON.tel} Ligar</a>
         <a class="btn" href="https://wa.me/${telBR}" target="_blank" rel="noopener">${ICON.zap} WhatsApp</a></div>
         <div class="nota">Celular: ${esc(a.tel)}</div>` : '<div class="nota">Sem celular no cadastro.</div>'}
-    </div>
-
-    <div class="caixa">
-      <h3>Visita</h3>
-      <div class="opcoes st" id="fx-st">
-        ${Object.entries(STATUS).map(([k, s]) => `<button data-v="${k}" aria-pressed="${r.st === k}" style="${r.st === k ? 'background:' + s.c : ''}">${s.t}</button>`).join('')}
-      </div>
-      ${r.st ? `<div class="nota" style="margin-top:8px">Marcado por ${esc(r.eq || '?')} em ${dataBR(r.qd)} · <button class="lnk" id="fx-limpa">desfazer</button></div>` : '<div class="nota" style="margin-top:8px">Ainda não visitado.</div>'}
-    </div>
-
-    <div class="caixa">
-      <h3>Situação da casa</h3>
-      <div class="opcoes" id="fx-sit">${SITUACOES.map(s => `<button aria-pressed="${r.sit === s}">${s}</button>`).join('')}</div>
-    </div>
-
-    <div class="caixa">
-      <h3>Do que precisa</h3>
-      <div id="fx-nec">${ITENS.map(([k, n]) => `<div class="nec ${nec[k] > 0 ? 'on' : ''}" data-k="${k}"><span>${n}</span>
-        <div class="qtd"><button data-d="-1" aria-label="Menos">−</button><output>${nec[k] || 0}</output><button data-d="1" aria-label="Mais">+</button></div></div>`).join('')}</div>
-      <label class="nota" for="fx-obs" style="display:block;margin:10px 0 4px">Outras necessidades e observações</label>
-      <textarea id="fx-obs" placeholder="Ex.: família de 5 pessoas, 2 crianças; precisa de fogão">${esc(r.obs || '')}</textarea>
-    </div>
-
-    <div class="caixa">
-      <h3>Local exato</h3>
-      <div class="nota">Na frente da casa, toque abaixo para gravar a posição do GPS. Ela vai no relatório e corrige o mapa para todos.</div>
-      <button class="btn blk" id="fx-gps">${ICON.gps} Estou na frente da casa</button>
-      ${r.loc ? `<div class="nota">GPS gravado: ${r.loc.map(v => v.toFixed(5)).join(', ')}</div>` : ''}
     </div>`;
 
   $('#fx-rot').onclick = () => { alternarSel(a.id); renderFicha(); };
   $('#fx-mapa').onclick = () => { history.back(); setTimeout(() => { irPara('mapa'); focarNoMapa(a.id); }, 60); };
-  $('#fx-st').onclick = e => { const b = e.target.closest('button'); if (!b) return; salvarEdit(a.id, { st: b.dataset.v }); renderFicha(); toast(STATUS[b.dataset.v].t + ' ✓'); };
-  const lp = $('#fx-limpa'); if (lp) lp.onclick = () => { salvarEdit(a.id, { st: '' }); renderFicha(); };
-  $('#fx-sit').onclick = e => { const b = e.target.closest('button'); if (!b) return; const v = b.textContent; salvarEdit(a.id, { sit: (rec(a.id) || {}).sit === v ? '' : v }); renderFicha(); };
-  $('#fx-nec').onclick = e => {
-    const b = e.target.closest('button[data-d]'); if (!b) return;
-    const row = b.closest('.nec'); const k = row.dataset.k;
-    const n = Object.assign({}, (rec(a.id) || {}).nec || {}); n[k] = Math.max(0, (n[k] || 0) + (+b.dataset.d));
-    if (!n[k]) delete n[k];
-    salvarEdit(a.id, { nec: n });
-    row.querySelector('output').textContent = n[k] || 0; row.classList.toggle('on', n[k] > 0);
-  };
-  let tmr; $('#fx-obs').oninput = e => { clearTimeout(tmr); const v = e.target.value; tmr = setTimeout(() => salvarEdit(a.id, { obs: v }), 500); };
-  $('#fx-gps').onclick = () => {
-    if (!navigator.geolocation) return toast('Este celular não deu acesso ao GPS.');
-    toast('Buscando posição…');
-    navigator.geolocation.getCurrentPosition(p => {
-      const loc = [+p.coords.latitude.toFixed(6), +p.coords.longitude.toFixed(6)];
-      if (dist(loc, CENTRO) > 40000) { toast('O GPS indica um lugar longe de Tupanciretã. Não foi gravado.'); return; }
-      salvarEdit(a.id, { loc, locPrec: Math.round(p.coords.accuracy) });
-      a.geo = Object.assign({}, a.geo, { p: loc, prec: 'gps' });
-      renderFicha(); toast('Local gravado (precisão ~' + Math.round(p.coords.accuracy) + ' m)');
-    }, () => toast('Não foi possível ler o GPS. Verifique se a localização está ligada.'), { enableHighAccuracy: true, timeout: 20000 });
-  };
 }
 
 /* ---------- roteiro ---------- */
@@ -446,74 +363,15 @@ function ordenarRota(ids) {
   }
   return ord.map(i => comLocal[i]).concat(semLocal);
 }
-/* digitar "pedro, joão e maria" e montar o roteiro */
-let duvidas = [], naoAchados = [];
-function acharPorNome(termo, curso) {
-  const t = deac(termo).replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).filter(Boolean);
-  if (!t.length) return [];
-  const pontos = a => { const pal = deac(a.n).split(/\s+/); return (pal[0] === t[0] ? 4 : pal[0].startsWith(t[0]) ? 2 : 0) + t.filter(x => pal.includes(x)).length; };
-  return A.filter(a => {
-    if (curso && a.c !== curso) return false;
-    const pal = deac(a.n).split(/\s+/);
-    return t.every(x => pal.some(p => p.startsWith(x)));
-  }).sort((x, y) => pontos(y) - pontos(x) || x.n.localeCompare(y.n, 'pt'));
-}
-function adicionarNomes(texto) {
-  const curso = LS.get('rotCurso', '');
-  const termos = texto.split(/[,;\n]+|\s+e\s+/i).map(s => s.trim()).filter(Boolean);
-  duvidas = []; naoAchados = []; let novos = 0;
-  for (const termo of termos) {
-    const r = acharPorNome(termo, curso);
-    if (!r.length) naoAchados.push(termo);
-    else if (r.length === 1) { if (!sel.includes(r[0].id)) { sel.push(r[0].id); novos++; } }
-    else duvidas.push({ termo, ids: r.map(a => a.id) });
-  }
-  if (novos) { sel = ordenarRota(sel); salvarSel(); }
-  renderRoteiro();
-  if (novos) toast(`${novos} aluno(s) no roteiro`);
-}
-function blocoNomes() {
-  const curso = LS.get('rotCurso', '');
-  const cursos = [...new Set(A.map(a => a.c))].sort((x, y) => x.localeCompare(y, 'pt'));
-  const nCurso = curso ? A.filter(a => a.c === curso).length : A.length;
-  return `<div class="caixa passo"><h3><span class="np">1</span> Quem vai</h3>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b style="font-size:17px">${esc(equipe)}</b><button class="lnk" id="rt-equipe">trocar</button></div>
-    </div>
-    <div class="caixa passo">
-    <h3><span class="np">2</span> Quem vamos visitar</h3>
-    <select class="campo" id="rt-curso" aria-label="Curso" style="margin-bottom:8px">
-      <option value="">Todos os cursos (${A.length} alunos)</option>
-      ${cursos.map(c => `<option ${c === curso ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-    </select>
-    <div class="nomes"><textarea id="rt-nomes" placeholder="Digite os nomes separados por vírgula. Ex.: Pedro, João Lucas, Maria" autocomplete="off"></textarea></div>
-    <button class="btn pri blk" id="rt-add">Montar roteiro</button>
-    ${curso ? `<button class="lnk" id="rt-ver-curso">Ver a lista dos ${nCurso} alunos de ${esc(curso)} em Tupanciretã ›</button>` : ''}
-    ${naoAchados.length ? `<div class="duvida"><b>Não encontrei${curso ? ' neste curso' : ''}:</b>${naoAchados.map(esc).join(', ')}<div class="nota">Confira a grafia ou escolha “Todos os cursos”.</div></div>` : ''}
-    ${duvidas.map((d, i) => `<div class="duvida" data-i="${i}"><b>Qual “${esc(d.termo)}”? Toque no aluno certo: <button class="lnk" data-pula="${i}">pular</button></b><div class="opcoes">
-      ${d.ids.slice(0, 12).map(id => { const a = byId[id]; const ja = sel.includes(id); return `<button data-id="${id}" aria-pressed="${ja}">${ja ? '✓ ' : ''}${esc(a.n)}<small>${esc(a.c)}${a.t ? ' · ' + esc(a.t) : ''} · ${esc(a.bL || endTxt(a, true))}</small></button>`; }).join('')}
-      ${d.ids.length > 12 ? `<div class="nota">… e mais ${d.ids.length - 12}. Digite também o sobrenome.</div>` : ''}
-    </div></div>`).join('')}
-  </div>`;
-}
-function ligarBlocoNomes() {
-  $('#rt-equipe').onclick = trocarEquipe;
-  $('#rt-curso').onchange = e => { LS.set('rotCurso', e.target.value); duvidas = []; naoAchados = []; renderRoteiro(); };
-  $('#rt-add').onclick = () => { const v = $('#rt-nomes').value; if (!v.trim()) { $('#rt-nomes').focus(); return; } adicionarNomes(v); };
-  const vc = $('#rt-ver-curso'); if (vc) vc.onclick = () => { filtro.curso = LS.get('rotCurso', ''); $('#f-curso').value = filtro.curso; irPara('alunos'); };
-  document.querySelectorAll('.duvida [data-pula]').forEach(b => b.onclick = () => { duvidas.splice(+b.dataset.pula, 1); renderRoteiro(); });
-  document.querySelectorAll('.duvida .opcoes button[data-id]').forEach(b => b.onclick = () => {
-    const id = b.dataset.id; const i = +b.closest('.duvida').dataset.i;
-    if (!sel.includes(id)) { sel.push(id); sel = ordenarRota(sel); }
-    duvidas.splice(i, 1);   // escolhido: a pergunta some
-    salvarSel(); renderRoteiro(); toast(byId[id].n.split(' ')[0] + ' no roteiro');
-  });
-}
 function renderRoteiro() {
   const el = $('#tela-roteiro');
   const deOnde = LS.get('origem', 'campus');
   if (!sel.length) {
-    el.innerHTML = blocoNomes() + `<div class="nota" style="text-align:center;margin-top:16px">Ou escolha na aba <b>Alunos</b>, tocando no quadradinho ao lado de cada nome.</div>`;
-    ligarBlocoNomes();
+    el.innerHTML = `<div class="vazio"><b style="font-size:17px;color:var(--tinta)">Nenhum aluno no roteiro</b><br><br>
+      Na aba <b>Alunos</b>, escolha o curso e toque no quadradinho de quem vai ser visitado.
+      Depois toque em <b>Montar roteiro</b>.</div>
+      <button class="btn pri blk grande" id="rt-escolher">Escolher alunos</button>`;
+    $('#rt-escolher').onclick = () => irPara('alunos');
     return;
   }
   const stops = sel.map(id => byId[id]).filter(Boolean);
@@ -525,28 +383,28 @@ function renderRoteiro() {
     return `<a class="gm" href="${esc(linkMaps(origem, p.map(destinoMaps)))}" target="_blank" rel="noopener">${ICON.maps}<div><b>Abrir no Google Maps${partes.length > 1 ? ` (parte ${i + 1} de ${partes.length})` : ''}</b><span>${de} → paradas ${i * POR + 1} a ${i * POR + p.length}</span></div></a>`;
   }).join('');
   const km = (() => { let d = 0, c = deOnde === 'campus' ? CAMPUS : ENTRADA; for (const a of stops) if (a.geo.p) { d += dist(c, a.geo.p); c = a.geo.p; } return (d * 1.3 / 1000).toFixed(0); })();
-  el.innerHTML = blocoNomes() + `<div class="caixa passo"><h3><span class="np">3</span> Onde: ${stops.length} parada${stops.length > 1 ? 's' : ''}</h3>
+  el.innerHTML = `<h2>Roteiro: ${stops.length} parada${stops.length > 1 ? 's' : ''}</h2>
     <div class="seg" id="seg-origem"><button data-v="campus" aria-pressed="${deOnde === 'campus'}">Sair do IFFar JC</button><button data-v="aqui" aria-pressed="${deOnde !== 'campus'}">Sair de onde estou</button></div>
-    ${links}
-    <div class="mapa-rot" id="rt-mapa" title="Abrir no mapa">${svgMapa(stops, { tela: true, cor: true })}</div>
-    <div class="nota">Toque no mapa para ampliar.</div></div>
-    <div class="nota">Cerca de ${km} km no total. O Google Maps abre até 9 paradas por vez; ao terminar uma parte, abra a próxima.</div>
-    <div class="linha-btn">
-      <button class="btn" id="rt-ordenar">Ordenar melhor caminho</button>
-      <button class="btn" id="rt-imprimir">${ICON.print} Imprimir / PDF</button>
+    <div class="acoes">
+      ${links}
+      <button class="btn blk grande" id="rt-imprimir" style="margin:0">${ICON.print} Imprimir / salvar PDF</button>
     </div>
-    <div id="rt-lista">${stops.map((a, i) => {
-      const st = stDe(a.id);
-      return `<div class="parada" data-id="${a.id}"><div class="num" style="${st ? 'background:' + STATUS[st].c : ''}">${i + 1}</div>
-      <div class="txt"><b>${esc(a.n)}</b><span>${esc(endTxt(a, true))}${a.b ? ' · ' + esc(a.bL) : ''}${st ? ' · ' + STATUS[st].t : ''}</span></div>
-      <button class="mini" data-a="sobe" aria-label="Subir">↑</button><button class="mini" data-a="desce" aria-label="Descer">↓</button><button class="mini" data-a="tira" aria-label="Tirar do roteiro">✕</button></div>`;
-    }).join('')}</div>
+    <div class="nota">Cerca de ${km} km no total.${partes.length > 1 ? ' O Google Maps abre até 9 paradas por vez; ao terminar uma parte, abra a próxima.' : ''}</div>
+    <div class="mapa-rot" id="rt-mapa" title="Abrir no mapa">${svgMapa(stops, { tela: true })}</div>
+    <div class="nota" style="margin-bottom:10px">Toque no mapa para ampliar.</div>
+    <div id="rt-lista">${stops.map((a, i) => `<div class="parada" data-id="${a.id}"><div class="num">${i + 1}</div>
+      <div class="txt"><b>${esc(a.n)}</b><span>${esc(endTxt(a, true))}${a.b ? ' · ' + esc(a.bL) : ''}</span></div>
+      <button class="mini" data-a="sobe" aria-label="Subir">↑</button><button class="mini" data-a="desce" aria-label="Descer">↓</button><button class="mini" data-a="tira" aria-label="Tirar do roteiro">✕</button></div>`).join('')}</div>
+    <div class="linha-btn">
+      <button class="btn" id="rt-mais">+ Alunos</button>
+      <button class="btn" id="rt-ordenar">Reordenar caminho</button>
+    </div>
     <button class="btn blk" id="rt-limpar" style="color:var(--verm)">Limpar roteiro</button>
-    <div class="nota">Dica: antes de sair, toque em “Imprimir / PDF” e escolha <b>Salvar como PDF</b> (ou uma impressora). O PDF tem o mapa das ruas com os números das paradas e espaço para anotar as necessidades. Ele abre no celular mesmo sem sinal.</div>`;
-  ligarBlocoNomes();
+    <div class="nota">Dica: antes de sair, toque em “Imprimir / salvar PDF” e escolha <b>Salvar como PDF</b>. O PDF tem o mapa das ruas com as paradas numeradas e os endereços, e abre no celular mesmo sem sinal.</div>`;
   $('#rt-mapa').onclick = () => { irPara('mapa'); setTimeout(() => { if (mapa) { const b = L.latLngBounds(stops.filter(a => a.geo.p).map(a => a.geo.p)); if (b.isValid()) mapa.fitBounds(b, { padding: [40, 40] }); } }, 120); };
   $('#seg-origem').onclick = e => { const b = e.target.closest('button'); if (!b) return; LS.set('origem', b.dataset.v); renderRoteiro(); };
   $('#rt-ordenar').onclick = () => { sel = ordenarRota(sel); salvarSel(); renderRoteiro(); toast('Paradas ordenadas a partir da entrada da cidade'); };
+  $('#rt-mais').onclick = () => irPara('alunos');
   $('#rt-imprimir').onclick = () => imprimirRoteiro(stops);
   $('#rt-limpar').onclick = () => { if (confirm('Tirar todos os alunos do roteiro?')) { sel = []; salvarSel(); renderRoteiro(); } };
   $('#rt-lista').onclick = e => {
@@ -599,8 +457,8 @@ function svgMapa(stops, opt = {}) {
   let refs = REFS.filter(r => dentro(r.p)).map(r => { const [x, y] = P(r.p); return `<g><rect x="${x - 5}" y="${y - 5}" width="10" height="10" fill="#333"/><text x="${+x + 8}" y="${+y + 4}" class="ref">${esc(r.n)}</text></g>`; }).join('');
   if (dentro(ENTRADA)) { const [x, y] = P(ENTRADA); refs += `<g><circle cx="${x}" cy="${y}" r="7" fill="#1a73e8"/><text x="${+x + 10}" y="${+y + 4}" class="ref">RS-527 (vem do IFFar)</text></g>`; }
   const marcas = stops.map((a, i) => {
-    if (!a.geo.p) return ''; const [x, y] = P(a.geo.p); const st = stDe(a.id);
-    const cor = opt.cor ? (st ? STATUS[st].c : COR_PENDENTE) : '#c62828';
+    if (!a.geo.p) return ''; const [x, y] = P(a.geo.p);
+    const cor = COR;
     const r = opt.todos ? 6 : (opt.tela ? 11 : 15);
     return `<g><circle cx="${x}" cy="${y}" r="${r}" fill="${cor}" stroke="#fff" stroke-width="2"/>${opt.todos ? '' : `<text x="${x}" y="${+y + r * 0.38}" class="n" style="font-size:${opt.tela ? 12 : 16}px">${i + 1}</text>`}</g>`;
   }).join('');
@@ -619,12 +477,12 @@ function imprimirRoteiro(stops) {
   const hoje = new Date().toLocaleDateString('pt-BR');
   const linhas = stops.map((a, i) => `<tr><td><b>${i + 1}</b></td><td><b>${esc(a.n)}</b><br>${esc(a.c)}${a.t ? ' · ' + esc(a.t) : ''}${a.tel ? '<br>Cel: ' + esc(a.tel) : ''}</td>
     <td>${esc(endTxt(a))}${a.b ? '<br>Bairro ' + esc(a.bL) : ''}${a.geo.rua && deac(a.geo.rua) !== deac(a.lg + ' ' + a.r) ? '<br><i>No mapa: ' + esc(a.geo.rua) + '</i>' : ''}${a.geo.prec === 'bairro' || a.geo.prec === 'semlocal' ? '<br><i>(local aproximado)</i>' : ''}</td>
-    <td style="width:22mm">☐ Visitado<br>☐ Ninguém</td><td style="width:62mm">&nbsp;</td></tr>`).join('');
+    <td style="width:55mm">&nbsp;</td></tr>`).join('');
   $('#impressao').innerHTML = `<h1>Roteiro de visitas · Tupanciretã</h1>
-    <div class="pq">IFFar Campus Júlio de Castilhos · Equipe: ${esc(equipe)} · ${hoje} · ${stops.length} paradas · Saída do campus pela RS-527, entrada na cidade pela Av. Padre Roque Gonzales</div>
+    <div class="pq">IFFar Campus Júlio de Castilhos · ${hoje} · ${stops.length} paradas · Saída do campus pela RS-527, entrada na cidade pela Av. Padre Roque Gonzales</div>
     ${svgMapa(stops)}
     <div class="pq">Os pontos foram estimados pelo endereço do cadastro (número da casa = metros a partir do centro). Confirme a casa pelo número na rua.</div>
-    <table class="quebra-auto"><thead><tr><th>#</th><th>Aluno</th><th>Endereço</th><th>Visita</th><th>Do que precisa (água, cesta, colchão, roupas, lona, telhas, higiene, limpeza…)</th></tr></thead><tbody>${linhas}</tbody></table>`;
+    <table class="quebra-auto"><thead><tr><th>#</th><th>Aluno</th><th>Endereço</th><th>Anotações</th></tr></thead><tbody>${linhas}</tbody></table>`;
   setTimeout(() => window.print(), 100);
 }
 
@@ -696,15 +554,17 @@ function desenharAlunos() {
   if (!mapa) return;
   camadaAlunos.clearLayers();
   const L0 = filtrados(); let semLocal = 0;
+  const noFiltro = new Set(L0.map(a => a.id));
+  sel.forEach(id => { if (!noFiltro.has(id) && byId[id]) L0.push(byId[id]); });   // paradas do roteiro sempre aparecem
   for (const a of L0) {
     if (!a.geo.p) { semLocal++; continue; }
-    const st = stDe(a.id); const cor = st ? STATUS[st].c : COR_PENDENTE; const pos = sel.indexOf(a.id);
+    const pos = sel.indexOf(a.id);
     const m = pos >= 0
-      ? L.marker(a.geo.p, { icon: L.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 13], html: `<div class="pino" style="width:26px;height:26px;background:${cor}">${pos + 1}</div>` }) })
-      : L.circleMarker(a.geo.p, { radius: 8, color: '#fff', weight: 2, fillColor: cor, fillOpacity: 1, dashArray: a.geo.prec === 'bairro' ? '3' : null });
+      ? L.marker(a.geo.p, { zIndexOffset: 1000, icon: L.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 13], html: `<div class="pino" style="width:26px;height:26px;background:${COR}">${pos + 1}</div>` }) })
+      : L.circleMarker(a.geo.p, { radius: 7, color: '#fff', weight: 2, fillColor: sel.length ? COR_FORA : COR, fillOpacity: 1, dashArray: a.geo.prec === 'bairro' ? '3' : null });
     m.bindPopup(() => {
       const d = document.createElement('div');
-      d.innerHTML = `<b>${esc(a.n)}</b><br>${esc(endTxt(a))}<br><span class="nota">${esc(a.bL || '')} · ${st ? STATUS[st].t : 'A visitar'}</span><br>
+      d.innerHTML = `<b>${esc(a.n)}</b><br>${esc(endTxt(a))}<br><span class="nota">${esc(a.c)}${a.bL ? ' · ' + esc(a.bL) : ''}</span><br>
         <button class="btn pri" data-a="ficha">Abrir ficha</button><button class="btn" data-a="rot">${sel.includes(a.id) ? 'Tirar do roteiro' : '+ Roteiro'}</button>
         <a class="btn" href="${esc(linkMaps('', [destinoMaps(a)]))}" target="_blank" rel="noopener">Ir</a>`;
       d.onclick = e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.a === 'ficha') abrirFicha(a.id); else { alternarSel(a.id); mapa.closePopup(); desenharAlunos(); } };
@@ -712,7 +572,7 @@ function desenharAlunos() {
     });
     m.addTo(camadaAlunos);
   }
-  $('#mapa-info').innerHTML = `<span class="leg"><i style="background:${COR_PENDENTE}"></i>A visitar</span><span class="leg"><i style="background:${STATUS.visitado.c}"></i>Visitado</span><span class="leg"><i style="background:${STATUS.ausente.c}"></i>Sem contato</span><br>${L0.length} alunos no filtro${semLocal ? ` · ${semLocal} sem local` : ''}`;
+  $('#mapa-info').innerHTML = `${filtro.curso ? esc(filtro.curso) + ': ' : ''}${L0.length} alunos${semLocal ? ` (${semLocal} sem local)` : ''}${sel.length ? `<br><span class="leg"><i style="background:${COR}"></i>no roteiro (${sel.length})</span><span class="leg"><i style="background:${COR_FORA}"></i>outros</span>` : ''}`;
 }
 function focarNoMapa(id) {
   const a = byId[id]; if (!a.geo.p) { toast('Este aluno não tem local no mapa.'); return; }
@@ -720,183 +580,75 @@ function focarNoMapa(id) {
   setTimeout(() => { mapa.invalidateSize(); mapa.setView(a.geo.p, 17); camadaAlunos.eachLayer(l => { const p = l.getLatLng(); if (Math.abs(p.lat - a.geo.p[0]) < 1e-7 && Math.abs(p.lng - a.geo.p[1]) < 1e-7) l.openPopup(); }); }, 80);
 }
 
-/* ---------- compras e relatório ---------- */
-function relatorio() {
-  const itens = Object.entries(edits).map(([id, r]) => { const a = byId[id]; return Object.assign({ id, nome: a ? a.n : '', end: a ? endTxt(a) + (a.b ? ' - ' + a.bL : '') : '' }, r); });
-  return { app: 'visitas-tupancireta', v: 1, equipe, enviado: agora(), dadosDe: DB.gerado, itens };
-}
-function textoRelatorio(rel) {
-  const L = rel.itens.map(r => {
-    const partes = [`${r.nome} (${r.end})`];
-    partes.push(r.st ? STATUS[r.st].t + ' em ' + dataBR(r.qd) : 'Sem marcação de visita');
-    if (r.sit) partes.push('Casa: ' + r.sit);
-    const n = necResumo(r); if (n) partes.push('Precisa: ' + n);
-    if (r.obs) partes.push('Obs.: ' + r.obs);
-    if (r.loc) partes.push('GPS: ' + r.loc.join(','));
-    return '• ' + partes.join(' | ');
-  });
-  return `Relatório da equipe ${rel.equipe} – ${dataBR(rel.enviado)}\n${rel.itens.length} aluno(s) com anotações.\n\n${L.join('\n')}\n\n----- DADOS PARA O APP (não apagar) -----\n${JSON.stringify(rel)}`;
-}
-function renderCompras() {
-  const tot = {}, quem = {}, obs = [], sits = {};
-  let visit = 0, ausente = 0;
-  for (const a of A) {
-    const r = rec(a.id); if (!r) continue;
-    if (r.st === 'visitado') visit++; if (r.st === 'ausente' || r.st === 'voltar') ausente++;
-    for (const [k, q] of Object.entries(r.nec || {})) if (q > 0) { tot[k] = (tot[k] || 0) + q; (quem[k] = quem[k] || []).push(`${a.n} (${q})`); }
-    if (r.obs) obs.push([a, r.obs]);
-    if (r.sit) sits[r.sit] = (sits[r.sit] || 0) + 1;
-  }
-  const pendEnvio = Object.values(edits).filter(r => (r.qd || '') > LS.get('enviado', '')).length;
-  const ultimo = LS.get('enviado', '');
-  $('#tela-compras').innerHTML = `<h2>Compras e relatório</h2>
-    <div class="caixa"><h3>Enviar para a coordenação</h3>
-      <div class="nota">${pendEnvio ? `<b style="color:var(--verm)">${pendEnvio} anotação(ões) ainda não enviada(s).</b>` : 'Tudo enviado.'}${ultimo ? ' Último envio: ' + dataBR(ultimo) + '.' : ''} As anotações ficam guardadas neste celular até você enviar.</div>
-      <button class="btn pri blk" id="cp-email">${ICON.mail} Enviar relatório por e-mail</button>
-      <div class="linha-btn"><button class="btn" id="cp-share">Compartilhar arquivo</button><button class="btn" id="cp-baixar">Baixar arquivo</button></div>
-      <div class="nota">O e-mail vai para ${EMAIL}. Se o e-mail não abrir, use “Compartilhar arquivo” e escolha o Gmail ou o WhatsApp.</div>
-    </div>
-    <div class="caixa"><h3>Andamento</h3>
-      <div class="item-total"><span>Visitados</span><b>${visit}</b></div>
-      <div class="item-total"><span>Ninguém em casa / voltar</span><b>${ausente}</b></div>
-      <div class="item-total"><span>A visitar</span><b>${A.length - visit}</b></div>
-      ${Object.entries(sits).map(([s, n]) => `<div class="item-total"><span>Casa: ${esc(s)}</span><b>${n}</b></div>`).join('')}
-    </div>
-    <div class="caixa"><h3>Lista de compras (soma de todas as fichas)</h3>
-      ${Object.keys(tot).length ? ITENS.filter(([k]) => tot[k]).map(([k, n]) => `<details class="item-total" style="display:block"><summary style="display:flex;justify-content:space-between"><span>${n}</span><b>${tot[k]}</b></summary><div class="nota">${quem[k].map(esc).join('<br>')}</div></details>`).join('') : '<div class="nota">Nenhuma necessidade anotada ainda.</div>'}
-    </div>
-    ${obs.length ? `<div class="caixa"><h3>Observações</h3>${obs.map(([a, o]) => `<p style="margin:6px 0"><b>${esc(a.n)}</b>: ${esc(o)}</p>`).join('')}</div>` : ''}
-    <button class="btn blk" id="cp-imprimir">${ICON.print} Imprimir lista de compras</button>
-    <div class="caixa"><h3>Este celular</h3>
-      <div class="nota">Equipe: <b>${esc(equipe)}</b> · Dados dos alunos de ${dataBR(DB.gerado)}</div>
-      <div class="linha-btn"><button class="btn" id="cp-equipe">Trocar equipe</button><button class="btn" id="cp-sair">Apagar dados</button></div>
-      <div class="nota">“Apagar dados” tira a lista de alunos deste celular (ao terminar a ação). Para atualizar a lista, basta abrir o link novo que o coordenador mandar.</div>
-    </div>`;
-  const marcar = () => { LS.set('enviado', agora()); atualizarBolhas(); };
-  $('#cp-email').onclick = () => {
-    const rel = relatorio(); if (!rel.itens.length) return toast('Ainda não há anotações para enviar.');
-    const assunto = `Visitas Tupanciretã – ${equipe} – ${dataBR(rel.enviado)}`;
-    let corpo = textoRelatorio(rel);
-    if (corpo.length > 12000) { toast('Relatório grande: use “Compartilhar arquivo”.'); return; }
-    location.href = `mailto:${EMAIL}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
-    marcar(); setTimeout(renderCompras, 800);
-  };
-  const arquivo = () => { const rel = relatorio(); const nome = `visitas-${deac(equipe).replace(/[^a-z0-9]+/g, '-')}-${rel.enviado.slice(0, 16).replace(/[:T]/g, '')}.json`; return new File([JSON.stringify(rel, null, 1)], nome, { type: 'application/json' }); };
-  $('#cp-share').onclick = async () => {
-    const rel = relatorio(); if (!rel.itens.length) return toast('Ainda não há anotações para enviar.');
-    const f = arquivo();
-    try {
-      if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: 'Relatório de visitas', text: `Relatório de visitas – ${equipe}. Enviar para ${EMAIL}` });
-      else await navigator.share({ title: 'Relatório de visitas', text: textoRelatorio(rel) });
-      marcar(); renderCompras();
-    } catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar. Use “Baixar arquivo”.'); }
-  };
-  $('#cp-baixar').onclick = () => {
-    if (!Object.keys(edits).length) return toast('Ainda não há anotações para enviar.');
-    const f = arquivo(); const u = URL.createObjectURL(f); const l = document.createElement('a'); l.href = u; l.download = f.name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
-    marcar(); renderCompras(); toast('Arquivo salvo. Anexe num e-mail para ' + EMAIL);
-  };
-  $('#cp-imprimir').onclick = () => {
-    $('#impressao').innerHTML = `<h1>Lista de compras · Tupanciretã</h1><div class="pq">${new Date().toLocaleDateString('pt-BR')} · soma das fichas registradas neste celular e dos relatórios já recebidos</div>
-      <table><thead><tr><th>Item</th><th>Total</th><th>Para quem</th></tr></thead><tbody>${ITENS.filter(([k]) => tot[k]).map(([k, n]) => `<tr><td>${n}</td><td><b>${tot[k]}</b></td><td>${quem[k].map(esc).join('; ')}</td></tr>`).join('') || '<tr><td colspan="3">Nada anotado.</td></tr>'}</tbody></table>
-      ${obs.length ? '<h1 style="font-size:13pt;margin-top:6mm">Observações</h1>' + obs.map(([a, o]) => `<p><b>${esc(a.n)}</b> (${esc(endTxt(a, true))}): ${esc(o)}</p>`).join('') : ''}`;
-    setTimeout(() => window.print(), 100);
-  };
-  $('#cp-equipe').onclick = trocarEquipe;
-  $('#cp-sair').onclick = () => {
-    const n = Object.values(edits).filter(r => (r.qd || '') > LS.get('enviado', '')).length;
-    if (n && !confirm(`Há ${n} anotação(ões) ainda não enviada(s). Envie o relatório antes. Apagar mesmo assim?`)) return;
-    if (!n && !confirm('Apagar a lista de alunos e as anotações deste celular?')) return;
-    ['dados', 'edits', 'sel', 'enviado'].forEach(k => LS.del(k)); location.reload();
-  };
-}
-
 /* ---------- navegação ---------- */
-let telaAtual = 'roteiro';
+let telaAtual = 'alunos';
 function irPara(t) {
   telaAtual = t;
   document.querySelectorAll('section.tela').forEach(s => s.classList.toggle('hide', s.id !== 'tela-' + t));
   document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-current', b.dataset.tela === t ? 'page' : 'false'));
-  renderAtual(); window.scrollTo(0, 0);
+  renderAtual(); atualizarBarra(); window.scrollTo(0, 0);
 }
 function renderAtual() {
   if (telaAtual === 'alunos') renderLista();
   if (telaAtual === 'mapa') iniciarMapa();
   if (telaAtual === 'roteiro') renderRoteiro();
-  if (telaAtual === 'compras') renderCompras();
 }
 function atualizarBolhas() {
   const b = $('#bolha-rot'); b.textContent = sel.length; b.classList.toggle('hide', !sel.length);
-  const n = Object.values(edits).filter(r => (r.qd || '') > LS.get('enviado', '')).length;
-  const e = $('#bolha-env'); e.textContent = n; e.classList.toggle('hide', !n);
-}
-function trocarEquipe() {
-  const v = prompt('Nome da sua equipe:', equipe); if (v && v.trim()) { equipe = v.trim(); LS.set('equipe', equipe); $('#bt-equipe').textContent = equipe; renderAtual(); }
+  atualizarBarra();
 }
 
 /* ---------- início ---------- */
 let ruasProntas = false;
 function entrar(d) {
-  DB = d; EMAIL = DB.contato || '';
+  DB = d;
   A = DB.alunos; byId = Object.fromEntries(A.map(a => [a.id, a]));
   sel = sel.filter(id => byId[id]);
   if (!ruasProntas) { carregarRuas(); ruasProntas = true; }
   localizarTodos(); montarFiltros();
   $('#entrada').classList.add('hide');
-  $('#bt-equipe').textContent = equipe || 'Equipe';
   $('#sub-topo').textContent = `${A.length} alunos · IFFar Júlio de Castilhos`;
   atualizarBolhas(); renderAtual();
 }
-function mostrarEntrada(temDados) {
-  $('#entrada').classList.remove('hide');
-  $('#sem-dados').classList.toggle('hide', temDados);
-  $('#com-dados').classList.toggle('hide', !temDados);
-  $('#in-equipe').required = temDados;
-}
 function ligarEventos() {
   $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) irPara(b.dataset.tela); };
-  $('#bt-equipe').onclick = trocarEquipe;
   let tq; $('#busca').oninput = e => { clearTimeout(tq); tq = setTimeout(() => { filtro.q = e.target.value; renderLista(); }, 150); };
-  $('#seg-status').onclick = e => { const b = e.target.closest('button'); if (!b) return; filtro.st = b.dataset.v; document.querySelectorAll('#seg-status button').forEach(x => x.setAttribute('aria-pressed', x === b)); renderLista(); };
   $('#f-bairro').onchange = e => { filtro.bairro = e.target.value; renderLista(); };
-  $('#f-curso').onchange = e => { filtro.curso = e.target.value; renderLista(); };
-  $('#f-nivel').onchange = e => { filtro.nivel = e.target.value; renderLista(); };
+  $('#f-curso').onchange = e => { filtro.curso = e.target.value; LS.set('curso', filtro.curso); renderLista(); };
   $('#f-ordem').onchange = e => { filtro.ordem = e.target.value; renderLista(); };
   $('#bt-add-todos').onclick = () => {
-    const L = filtrados().filter(a => !sel.includes(a.id));
-    if (!L.length) return toast('Todos do filtro já estão no roteiro.');
-    if (L.length > 30 && !confirm(`Incluir ${L.length} alunos no roteiro?`)) return;
-    sel = sel.concat(L.map(a => a.id)); salvarSel(); renderLista(); toast(`${L.length} incluído(s) no roteiro`);
+    const L = filtrados(); const ns = new Set(sel);
+    if (L.length && L.every(a => ns.has(a.id))) { const tirar = new Set(L.map(a => a.id)); sel = sel.filter(id => !tirar.has(id)); }
+    else {
+      const novos = L.filter(a => !ns.has(a.id));
+      if (novos.length > 30 && !confirm(`Marcar ${novos.length} alunos?`)) return;
+      sel = sel.concat(novos.map(a => a.id));
+    }
+    salvarSel(); renderLista();
   };
   $('#lista').onclick = e => {
     const card = e.target.closest('.card'); if (!card) return; const id = card.dataset.id;
     if (e.target.closest('.chk')) { alternarSel(id); renderLista(); } else abrirFicha(id);
   };
+  $('#bs-montar').onclick = montarRoteiro;
+  $('#bs-limpar').onclick = () => { sel = []; salvarSel(); renderLista(); };
   $('#bt-fecha-ficha').onclick = () => history.back();
   window.addEventListener('popstate', () => { if (fichaId) fecharFicha(); });
-  $('#form-entrada').onsubmit = e => {
-    e.preventDefault();
-    const eq = $('#in-equipe').value.trim(); if (!eq || !DADOS_PEND) return;
-    equipe = eq; LS.set('equipe', eq); entrar(DADOS_PEND);
-  };
+  $('#form-entrada').onsubmit = e => e.preventDefault();
   $('#in-arquivo').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     try {
       const d = JSON.parse(await f.text());
       if (!dadosValidos(d)) throw new Error('formato');
-      guardarDados(d); DADOS_PEND = LS.get('dados', d);
-      if (equipe) entrar(DADOS_PEND); else mostrarEntrada(true);
+      guardarDados(d); entrar(LS.get('dados', d));
     } catch (err) { $('#erro-entrada').textContent = 'Este arquivo não é a lista de alunos do app.'; }
   };
 }
-let DADOS_PEND = null;
 ligarEventos();
 (async () => {
-  $('#in-equipe').value = equipe;
-  DADOS_PEND = await obterDados();
-  if (DADOS_PEND && equipe) entrar(DADOS_PEND);
-  else mostrarEntrada(!!DADOS_PEND);
+  const d = await obterDados();
+  if (d) entrar(d); else $('#entrada').classList.remove('hide');
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
 })();
 // abrir um link novo de dados com o app já aberto
-window.addEventListener('hashchange', async () => { if (location.hash.startsWith('#d=')) { const d = await obterDados(); if (d) { DADOS_PEND = d; if (equipe) entrar(d); else mostrarEntrada(true); } } });
+window.addEventListener('hashchange', async () => { if (location.hash.startsWith('#d=')) { const d = await obterDados(); if (d) entrar(d); } });

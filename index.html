@@ -99,11 +99,16 @@ h2{font-size:18px;margin:6px 0 10px}
 .gm b{display:block}
 .gm span{font-size:13px;color:var(--cinza)}
 
-/* compras */
-.item-total{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--linha)}
-.item-total:last-child{border-bottom:0}
-.item-total b{font-size:20px;color:var(--verde)}
-details summary{cursor:pointer}
+/* curso e barra de seleção */
+.curso-grande{font-weight:600;font-size:16px;padding:12px;border:2px solid var(--verde)}
+.barra-sel{position:fixed;left:0;right:0;bottom:calc(var(--nav) + env(safe-area-inset-bottom));z-index:29;background:#fff;border-top:1px solid var(--linha);box-shadow:0 -2px 8px rgba(0,0,0,.08);display:flex;align-items:center;gap:10px;padding:8px 14px}
+.barra-sel .bs-txt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.2}
+.barra-sel .bs-txt .lnk{align-self:flex-start;padding:2px 0;font-size:13px;color:var(--cinza)}
+.barra-sel .btn{min-height:46px;padding:10px 16px}
+body.com-barra main{padding-bottom:calc(var(--nav) + env(safe-area-inset-bottom) + 80px)}
+.acoes{display:grid;gap:8px;margin:10px 0}
+.acoes .gm{margin:0}
+.btn.grande{min-height:56px;font-size:16px}
 
 /* mapa */
 #mapa{height:calc(100vh - 56px - var(--nav) - env(safe-area-inset-bottom));height:calc(100dvh - 56px - var(--nav) - env(safe-area-inset-bottom));background:#eef1ee}
@@ -167,20 +172,15 @@ textarea{min-height:84px;resize:vertical}
 </head>
 <body>
 
-<div id="entrada">
+<div id="entrada" class="hide">
   <form id="form-entrada" autocomplete="off">
     <h1>Visitas Tupanciretã</h1>
     <div class="nota">IFFar Campus Júlio de Castilhos · ação humanitária após o temporal de 20/11</div>
-    <div id="sem-dados" class="hide">
+    <div id="sem-dados">
       <p style="margin:14px 0 6px"><b>Falta carregar a lista de alunos.</b></p>
       <div class="nota">Abra neste celular o link que o coordenador mandou no WhatsApp. Se o link não abrir, use o arquivo de dados:</div>
       <label class="btn blk" for="in-arquivo" style="margin-top:10px">Abrir arquivo de dados</label>
       <input id="in-arquivo" type="file" accept=".json,application/json,text/plain" class="hide">
-    </div>
-    <div id="com-dados">
-      <label for="in-equipe">Nome da sua equipe</label>
-      <input id="in-equipe" class="campo" placeholder="Ex.: Equipe Ana e Paulo" required>
-      <button class="btn pri blk" style="margin-top:16px" type="submit" id="bt-entrar">Começar</button>
     </div>
     <div class="erro" id="erro-entrada" role="alert"></div>
     <div class="nota">Depois do primeiro acesso, o app funciona mesmo sem sinal.</div>
@@ -189,46 +189,40 @@ textarea{min-height:84px;resize:vertical}
 
 <header>
   <h1>Visitas Tupanciretã<small id="sub-topo">IFFar Júlio de Castilhos</small></h1>
-  <button class="chip-eq" id="bt-equipe" title="Trocar equipe">Equipe</button>
 </header>
 
 <main>
-  <section class="tela hide" id="tela-alunos">
-    <input class="busca" id="busca" type="search" placeholder="Buscar nome, rua ou bairro" autocomplete="off">
-    <div class="seg" id="seg-status" role="group" aria-label="Situação da visita">
-      <button data-v="todos" aria-pressed="true">Todos</button>
-      <button data-v="pendente" aria-pressed="false">A visitar</button>
-      <button data-v="feito" aria-pressed="false">Visitados</button>
-      <button data-v="ausente" aria-pressed="false">Sem contato</button>
-    </div>
+  <section class="tela" id="tela-alunos">
+    <select class="campo curso-grande" id="f-curso" aria-label="Curso"></select>
+    <input class="busca" id="busca" type="search" placeholder="Buscar nome, rua ou bairro" autocomplete="off" style="margin-top:8px">
     <div class="filtros">
       <select id="f-bairro" aria-label="Bairro"></select>
-      <select id="f-curso" aria-label="Curso"></select>
-      <select id="f-nivel" aria-label="Nível">
-        <option value="">Técnico e superior</option><option>Técnico</option><option>Superior</option>
-      </select>
       <select id="f-ordem" aria-label="Ordenar">
-        <option value="bairro">Ordenar: bairro e rua</option><option value="nome">Ordenar: nome</option><option value="campus">Ordenar: mais perto da entrada</option>
+        <option value="nome">Ordenar: nome</option><option value="bairro">Ordenar: bairro e rua</option>
       </select>
     </div>
-    <div class="resumo"><span id="contagem"></span><button class="lnk" id="bt-add-todos">+ todos no roteiro</button></div>
+    <div class="resumo"><span id="contagem"></span><button class="lnk" id="bt-add-todos">marcar todos</button></div>
+    <div class="nota" style="margin:-4px 2px 8px">Toque no quadradinho dos alunos que vão ser visitados.</div>
     <div id="lista"></div>
   </section>
+
+  <section class="tela hide" id="tela-roteiro"></section>
 
   <section class="tela hide" id="tela-mapa">
     <div id="mapa"></div>
     <div id="mapa-svg" class="hide"></div>
   </section>
-
-  <section class="tela" id="tela-roteiro"></section>
-  <section class="tela hide" id="tela-compras"></section>
 </main>
 
+<div id="barra-sel" class="barra-sel hide">
+  <div class="bs-txt"><b id="bs-n"></b><button class="lnk" id="bs-limpar">desmarcar</button></div>
+  <button class="btn pri" id="bs-montar">Montar roteiro ›</button>
+</div>
+
 <nav id="nav">
-  <button data-tela="roteiro" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></svg>Roteiro<span class="bolha hide" id="bolha-rot"></span></button>
-  <button data-tela="alunos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 20v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Alunos</button>
+  <button data-tela="alunos" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 20v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Alunos</button>
+  <button data-tela="roteiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></svg>Roteiro<span class="bolha hide" id="bolha-rot"></span></button>
   <button data-tela="mapa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg>Mapa</button>
-  <button data-tela="compras"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20.5" r="1.2"/><circle cx="17" cy="20.5" r="1.2"/></svg>Compras<span class="bolha hide" id="bolha-env"></span></button>
 </nav>
 
 <div id="ficha" class="hide" role="dialog" aria-modal="true" aria-labelledby="ficha-nome">
